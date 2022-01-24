@@ -24,11 +24,12 @@ function Promise2(execFunc) {
     }
 
     function reject(reason) {
+       
         if (called || self.state!==PENDING) return;//self.state!==PENDING은 콜백 이후 오류 throw시 promise 이행을 위함
+
         self.state = REJECTED; 
         value=reason;
-        if (typeof onRejected === "function") { 
-           
+        if (typeof onRejected === "function") {            
             onExecFunc(self.state);
         }else{                       
             self.value = reason;
@@ -36,9 +37,7 @@ function Promise2(execFunc) {
                 if(self.state===REJECTED)throw reason;
             },0);
             
-        }
-       
-       
+        }   
        
     }
 
@@ -48,6 +47,7 @@ function Promise2(execFunc) {
             if (state===FULFILLED ) {                
                 onFulfilled(value);                
             }else if (state===REJECTED ) {
+                
                 onRejected(value);
             }
             onCallback && onCallback();     
@@ -56,8 +56,9 @@ function Promise2(execFunc) {
 
 
     this.then = function (...callback) {
+       
         let state = this.state;
-        if (callback.length === 1 && state===REJECTED) {     
+        if (callback.length === 1 && state===REJECTED) {    
             return this;
         }else{
             onFulfilled = callback[0];
@@ -76,6 +77,10 @@ function Promise2(execFunc) {
 
     this.catch = function (callback) {
         onRejected = callback;
+        if(!called && this.state !==PENDING){
+            onExecFunc(this.state);
+            this.state=FULFILLED;
+        }
         return this;
     };
     this.finally = function(onFinally){
@@ -110,34 +115,54 @@ Promise2.reject = (reason) => new Promise2((resolve, reject) => reject(reason));
 
 
 Promise2.all = (promises) => {
-    let booleanArr = [],
-        results = [];
+    let results = [],
+        rejectPromise = promises.find(prom=>prom.state==='rejected');
 
-    function execFunc(resolve, reject) {
-        promises.forEach((promise, i) =>{
-           
-            if(promise.constructor === Promise2){
-                console.log(promise)
-                promise.then((val) => {
-                        booleanArr.push(true);
-                        results[i] = val;
-                        console.log(booleanArr)
-                        if (booleanArr.length === promises.length) {
-                            
+    function returnResult(onFunc){
+        let definedLen = results.filter(res => res!==undefined).length;
                            
-                            return booleanArr.filter(bool => bool===true).length>1?resolve(results):resolve(...results);
-                        }
-                    })
-                    .catch((error) => {
-                        return reject(error);
-                    })
+        if(definedLen===promises.length) {
+            return definedLen>1?onFunc(results):onFunc(...results);
+        }
+    }
+  
+        
+    function execFunc(resolve, reject) {
+        
+        if(promises.length==0)return resolve(promises); //주어진 순회 가능한 객체가 비어있는 경우에만 동기적으로 이행
+
+        if(rejectPromise){//배열 내 요소 중 어느 하나라도 거부하면 즉시 거부             
+            return rejectPromise.catch((error) => {
+                reject(error);
+            });
+        }
+
+ 
+            
+        promises.forEach((promise, i) =>{
+        
+            if(promise.constructor === Promise2){
+                promise.then((val) => {
+                    results[i] = val;                                            
+                    return returnResult(resolve);                        
+                })
+                .catch((error) => {
+                    results[i] = error; 
+                    return returnResult(reject);                        
+                });
                 
             }else{
-                booleanArr.push(false); 
                 results[i] = promises[i];
-                return resolve(results);
+                setTimeout(()=>{//async Promise객체가 아닐때
+                    return returnResult(resolve);
+                });
+               
             }
         });
+     
     }
+    
     return new Promise2(execFunc);
+    
+    
 };
